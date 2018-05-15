@@ -1,25 +1,31 @@
-#!/usr/bin/env python
-
-__author__ = "Paul Hancock and Natasha Hurley-Walker"
-__date__ = "05/11/2018"
+#! /usr/bin/env python
 
 import numpy as np
 import os
 from scipy import interpolate
 from scipy.interpolate import CloughTocher2DInterpolator
+import astropy
 from astropy import wcs
 from astropy.io import fits
 from astropy.io.votable import parse_single_table
+from astropy.coordinates import SkyCoord, Angle, Latitude, Longitude, SkyOffsetFrame
+from astropy.table import Table, hstack
+import astropy.units as u
+import os
 import sys
 import glob
 import argparse
 import psutil
 
-def which(program):
-    import os
-    def is_exe(fpath):
-        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+__author__ = "Paul Hancock and Natasha Hurley-Walker"
+__date__ = "2018-05-15"
 
+
+def is_exe(fpath):
+    return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+
+def which(program):
     fpath, fname = os.path.split(program)
     if fpath:
         if is_exe(program):
@@ -30,8 +36,8 @@ def which(program):
             exe_file = os.path.join(path, program)
             if is_exe(exe_file):
                 return exe_file
-
     return None
+
 
 def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', fitsname=None, plots=False, smooth=300.):
     """
@@ -39,11 +45,12 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
     Catalogue 1 is the source catalogue (positions that need to be corrected)
     Catalogue 2 is the reference catalogue (correct positions)
     return rbf models for the ra/dec corrections
-    :param fname: Filename
+    :param fname: filename for the crossmatched catalogue
     :param ra1: column name for the ra degrees in catalogue 1 (source)
     :param dec1: column name for the dec degrees in catalogue 1 (source)
     :param ra2: column name for the ra degrees in catalogue 2 (reference)
     :param dec2: column name for the dec degrees in catalogue 2 (reference)
+    :param fitsname: fitsimage upon which the pixel models will be based
     :param plots: True = Make plots
     :param smooth: smoothing radius (in pixels) for the RBF function
     :return: (dxmodel, dymodel)
@@ -61,10 +68,6 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
     # filter the data to only include SNR>10 sources
     flux_mask = np.where(raw_data['peak_flux']/raw_data['local_rms']>10)
     data = raw_data[flux_mask]
-
-    #calculate the offsets in the ra/dec directions
-    # catalog = Longitude(data[ra1], unit=u.degree), Latitude(data[dec1], unit=u.degree)
-    # reference = Longitude(data[ra2], unit=u.degree), Latitude(data[dec2], unit=u.degree)
 
     cat_xy = imwcs.all_world2pix(zip(data[ra1], data[dec1]), 1)
     ref_xy = imwcs.all_world2pix(zip(data[ra2], data[dec2]), 1)
@@ -103,7 +106,6 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
         gx, gy = np.mgrid[xmin:xmax:(xmax-xmin)/50., ymin:ymax:(ymax-ymin)/50.]
         mdx = dxmodel(np.ravel(gx), np.ravel(gy))
         mdy = dymodel(np.ravel(gx), np.ravel(gy))
-
         x = cat_xy[:, 0]
         y = cat_xy[:, 1]
 
@@ -172,6 +174,7 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
 
     return dxmodel, dymodel
 
+
 def correct_images(fnames, dxmodel, dymodel, suffix):
     """
     Read a list of fits image, and apply pixel-by-pixel corrections based on the
@@ -195,26 +198,20 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
 
     mem = int(psutil.virtual_memory().available * 0.75)
     print "Detected memory ~{0}GB".format(mem/2**30)
-# 32-bit floats, bit to byte conversion, MB conversion
+    # 32-bit floats, bit to byte conversion, MB conversion
     print "Image is {0}MB".format(data.shape[0]*data.shape[1]*32/(8*2**20))
     pixmem = 40000
     print "Allowing {0}kB per pixel".format(pixmem/2**10)
     stride = mem / pixmem
-# Make sure it is row-divisible
+    # Make sure it is row-divisible
     stride = (stride//data.shape[0])*data.shape[0]
-    print stride, len(x)
-
-    if stride < len(x):
-        print "Processing {0} rows at a time".format(stride//data.shape[0])
-    else:
-        print "Processing entire image at once"
 
     # calculate the corrections in blocks of 100k since the rbf fails on large blocks
-    print 'applying corrections to pixel co-ordinates',
+    print 'Applying corrections to pixel co-ordinates',
     # remember the largest offset
     maxx = maxy = 0
     if len(x) > stride:
-        print 'in cycles'
+        print " {0} rows at a time".format(stride//data.shape[0])
         n = 0
         borders = range(0, len(x)+1, stride)
         if borders[-1] != len(x):
@@ -258,17 +255,14 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         im.writeto(fout, overwrite=True, output_verify='fix+warn')
         oldshape = im[0].data.shape
         data = np.squeeze(im[0].data)
-# Replace NaNs with zeroes because nans break the interpolator
-        nandices = np.isnan(data)
-        data[nandices] = 0.0
         squeezedshape = data.shape
         print 'interpolating', fname
 # Note that we need a fresh copy of the data because otherwise we will be trying to
 # interpolate over the results of our interpolation
         newdata = np.copy(data)
-
+        print "Remapping data",
         if len(x) > stride:
-            print "Processing {0} rows at a time".format(stride//data.shape[0])
+            print "{0} rows at a time".format(stride//data.shape[0])
             n = 0
             borders = range(0, len(x)+1, stride)
             if borders[-1] != len(x):
@@ -287,7 +281,6 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
                 n += 1
                 sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
                 sys.stdout.flush()
-#                break
             print ""
         else:
             print 'all at once'
@@ -303,8 +296,6 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         data[:, 0:10] = np.nan
         data[:, -10:data.shape[0]] = np.nan
         data[-10:data.shape[1], :] = np.nan
-# Reapply any masking from the original data now that we are done interpolating
-        data[nandices] = np.nan
         im[0].data = data.reshape(oldshape)
         print "saving..."
         im.writeto(fout, overwrite=True, output_verify='fix+warn')
@@ -313,9 +304,90 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         del im, data
     return
 
+
+def warped_xmatch(incat=None, refcat=None, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000',
+                  radius=2/60.):
+    """
+    Create a cross match solution between two catalogues that accounts for bulk shifts and image warping.
+    The warping is done in pixel coordinates, not sky coordinates.
+
+    :param image: Fits image containing the WCS info for sky->pix conversion (Ideally the image which was used
+                  to create incat.
+    :param incat: The input catalogue which is to be warped during the cross matching process.
+    :param ref_cat: The reference image which will remain unwarped during the cross matching process
+    :param ra1, dec1: column names for ra/dec in the input catalogue
+    :param ra2, dec2: column names for ra/dec in the reference catalogue
+    :param radius: initial matching radius in degrees
+    :return:
+    """
+    # check for incat/refcat as as strings, and load the file if it is
+    incat = Table.read(incat)
+    refcat = Table.read(refcat)
+
+    target_cat = SkyCoord(incat[ra1], incat[dec1],  unit=(u.degree, u.degree), frame='icrs')
+    ref_cat = SkyCoord(refcat[ra2], refcat[dec2], unit=(u.degree, u.degree), frame='icrs')
+
+    center = SkyOffsetFrame(origin=SkyCoord(np.mean(target_cat.ra), np.mean(target_cat.dec), frame='icrs'))
+
+    tcat_offset = target_cat.transform_to(center)
+    rcat_offset = ref_cat.transform_to(center)
+
+    # crossmatch the two catalogs
+    idx, dist, _ = tcat_offset.match_to_catalog_sky(rcat_offset)
+
+    # accept only matches within radius
+    distance_mask = np.where(dist.degree < radius)  # this mask is into tcat_offset
+    match_mask = idx[distance_mask]  # this mask is into rcat_offset
+    print(len(match_mask))
+
+    # calculate the ra/dec shifts
+    dlon = rcat_offset.lon[match_mask] - tcat_offset.lon[distance_mask]
+    dlat = rcat_offset.lat[match_mask] - tcat_offset.lat[distance_mask]
+
+    # remake the offset catalogue with the bulk shift included
+    tcat_offset = SkyCoord(tcat_offset.lon + np.mean(dlon),
+                           tcat_offset.lat + np.mean(dlat), frame=center)
+
+
+    # now do this again 3 more times but using the Rbf
+    for i in range(3):
+        # crossmatch the two catalogs
+        idx, dist, _ = tcat_offset.match_to_catalog_sky(rcat_offset)
+        # accept only matches within radius
+        distance_mask = np.where(dist.degree < radius)  # this mask is into cat
+        match_mask = idx[distance_mask]  # this mask is into tcat_offset
+        if len(match_mask) < 1:
+            break
+
+        # calculate the ra/dec shifts
+        dlon = rcat_offset.lon.degree[match_mask] - tcat_offset.lon.degree[distance_mask]
+        dlat = rcat_offset.lat.degree[match_mask] - tcat_offset.lat.degree[distance_mask]
+
+
+        # use the following to make some models of the offsets
+        dlonmodel = interpolate.Rbf(tcat_offset.lon.degree[distance_mask], tcat_offset.lat.degree[distance_mask], dlon, function='linear', smooth=3)
+        dlatmodel = interpolate.Rbf(tcat_offset.lon.degree[distance_mask], tcat_offset.lat.degree[distance_mask], dlat, function='linear', smooth=3)
+
+        # remake/update the tcat_offset with this new model.
+        tcat_offset = SkyCoord(tcat_offset.lon + dlonmodel(tcat_offset.lon.degree, tcat_offset.lat.degree)*u.degree,
+                               tcat_offset.lat + dlatmodel(tcat_offset.lon.degree, tcat_offset.lat.degree)*u.degree,
+                               frame=center)
+
+    # final crossmatch to make the xmatch file
+    idx, dist, _ = tcat_offset.match_to_catalog_sky(rcat_offset)
+    # accept only matches within radius
+    distance_mask = np.where(dist.degree < radius)  # this mask is into cat
+    match_mask = idx[distance_mask]  # this mask is into tcat_offset
+    # print("Final mask {0}".format(len(match_mask)))
+    xmatch = hstack([incat[distance_mask], refcat[match_mask]])
+
+    # return a warped version of the target catalogue and the final cross matched table
+    return tcat_offset.transform_to(target_cat), xmatch
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    group1 = parser.add_argument_group("input/output files")
+    group1 = parser.add_argument_group("Warping input/output files")
     group1.add_argument("--xm", dest='xm', type=str, default=None,
                         help='A .fits binary or VO table. The crossmatch between the reference and source catalogue.')
     group1.add_argument("--infits", dest='infits', type=str, default=None,
@@ -336,6 +408,13 @@ if __name__ == "__main__":
                         help="Plot the offsets and models (default = False)")
     group3.add_argument('--smooth', dest='smooth', default=300.0, type=float,
                         help="Smoothness parameter to give to the radial basis function (default = 300 pix)")
+    group4 = parser.add_argument_group("Crossmatching input/output files")
+    group4.add_argument("--incat", dest='incat', type=str, default=None,
+                        help='Input catalogue to be warped.')
+    group4.add_argument("--refcat", dest='refcat', type=str, default=None,
+                        help='Input catalogue to be warped.')
+    group4.add_argument("--xmcat", dest='xm', type=str, default=None,
+                        help='Output cross match catalogue')
 
     results = parser.parse_args()
 
@@ -343,14 +422,23 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit()
 
+    if results.incat is not None:
+        if results.refcat is not None:
+            _, xmcat = warped_xmatch(incat=results.incat,
+                                     refcat=results.refcat,
+                                     ra1=results.ra1,
+                                     dec1=results.dec1,
+                                     ra2=results.ra2,
+                                     dec2=results.dec2)
+            xmcat.write(results.xm, overwrite=True)
+            print("Wrote {0}".format(results.xm))
+
     if results.infits is not None:
         fnames = glob.glob(results.infits) 
         # Use the first image to define the model
         dx, dy = make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
                                  fnames[0], results.plot, results.smooth)
         if results.suffix is not None:
-            # Correct all the images
-#            for f in fnames:
             correct_images(fnames, dx, dy, results.suffix)
-    else:
-        print "No output fits file specified; not doing warping"
+        else:
+            print "No output fits file specified; not doing warping"
