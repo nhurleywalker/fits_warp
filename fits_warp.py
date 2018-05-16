@@ -255,6 +255,9 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         im.writeto(fout, overwrite=True, output_verify='fix+warn')
         oldshape = im[0].data.shape
         data = np.squeeze(im[0].data)
+# Replace NaNs with zeroes because otherwise it breaks the interpolation
+        nandices = np.isnan(data)
+        data[nandices] = 0.0
         squeezedshape = data.shape
         print 'interpolating', fname
 # Note that we need a fresh copy of the data because otherwise we will be trying to
@@ -296,6 +299,8 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         data[:, 0:10] = np.nan
         data[:, -10:data.shape[0]] = np.nan
         data[-10:data.shape[1], :] = np.nan
+        # Re-apply any previous NaN mask to the data
+        data[nandices] = np.nan
         im[0].data = data.reshape(oldshape)
         print "saving..."
         im.writeto(fout, overwrite=True, output_verify='fix+warn')
