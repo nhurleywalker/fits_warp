@@ -382,7 +382,10 @@ def warped_xmatch(incat=None, refcat=None, ra1='ra', dec1='dec', ra2='RAJ2000', 
     xmatch = hstack([incat[distance_mask], refcat[match_mask]])
 
     # return a warped version of the target catalogue and the final cross matched table
-    return tcat_offset.transform_to(target_cat), xmatch
+    tcat_corrected = tcat_offset.transform_to(target_cat)
+    incat[ra1]  = tcat_corrected.ra.degree
+    incat[dec1] = tcat_corrected.dec.degree
+    return incat, xmatch
 
 
 if __name__ == "__main__":
@@ -415,6 +418,8 @@ if __name__ == "__main__":
                         help='Input catalogue to be warped.')
     group4.add_argument("--xmcat", dest='xm', type=str, default=None,
                         help='Output cross match catalogue')
+    group4.add_argument("--corrected", dest='corrected', type=str, default=None,
+                        help='Output corrected version of input catalogue')
 
     results = parser.parse_args()
 
@@ -424,7 +429,7 @@ if __name__ == "__main__":
 
     if results.incat is not None:
         if results.refcat is not None:
-            _, xmcat = warped_xmatch(incat=results.incat,
+            corrected, xmcat = warped_xmatch(incat=results.incat,
                                      refcat=results.refcat,
                                      ra1=results.ra1,
                                      dec1=results.dec1,
@@ -432,6 +437,9 @@ if __name__ == "__main__":
                                      dec2=results.dec2)
             xmcat.write(results.xm, overwrite=True)
             print("Wrote {0}".format(results.xm))
+            if results.corrected is not None:
+                corrected.write(results.corrected, overwrite=True)
+                print("Wrote {0}".format(results.corrected))
 
     if results.infits is not None:
         fnames = glob.glob(results.infits) 
