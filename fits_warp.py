@@ -17,7 +17,7 @@ import glob
 import argparse
 import psutil
 
-__author__ = "Paul Hancock and Natasha Hurley-Walker"
+__author__ = ["Natasha Hurley-Walker","Paul Hancock"]
 __date__ = "2018-05-29"
 
 
