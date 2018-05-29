@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-
+from __future__ import print_function
 import numpy as np
 import os
 from scipy import interpolate
@@ -17,8 +17,8 @@ import glob
 import argparse
 import psutil
 
-__author__ = "Paul Hancock and Natasha Hurley-Walker"
-__date__ = "2018-05-15"
+__author__ = ["Natasha Hurley-Walker","Paul Hancock"]
+__date__ = "2018-05-29"
 
 
 def is_exe(fpath):
@@ -88,7 +88,7 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
             import seaborn as sns
             cmap = matplotlib.colors.ListedColormap(sns.color_palette("husl", 256))
         except ImportError:
-            print "seaborne not detected; using hsv color scheme"
+            print("seaborne not detected; using hsv color scheme")
             cmap = 'hsv'
 # Attractive serif fonts
         if which("latex"):
@@ -97,9 +97,9 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
                 rc('text', usetex=True)
                 rc('font',**{'family':'serif','serif':['serif']})
             except:
-                print "rc not detected; using sans serif fonts"
+                print("rc not detected; using sans serif fonts")
         else:
-                print "latex not detected; using sans serif fonts"
+                print("latex not detected; using sans serif fonts")
         xmin, xmax = 0, hdr['NAXIS1']
         ymin, ymax = 0, hdr['NAXIS2']
 
@@ -197,21 +197,21 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
     y = np.array(xy[0, :])
 
     mem = int(psutil.virtual_memory().available * 0.75)
-    print "Detected memory ~{0}GB".format(mem/2**30)
+    print("Detected memory ~{0}GB".format(mem/2**30))
     # 32-bit floats, bit to byte conversion, MB conversion
-    print "Image is {0}MB".format(data.shape[0]*data.shape[1]*32/(8*2**20))
+    print("Image is {0}MB".format(data.shape[0]*data.shape[1]*32/(8*2**20)))
     pixmem = 40000
-    print "Allowing {0}kB per pixel".format(pixmem/2**10)
+    print("Allowing {0}kB per pixel".format(pixmem/2**10))
     stride = mem / pixmem
     # Make sure it is row-divisible
     stride = (stride//data.shape[0])*data.shape[0]
 
     # calculate the corrections in blocks of 100k since the rbf fails on large blocks
-    print 'Applying corrections to pixel co-ordinates',
+    print('Applying corrections to pixel co-ordinates', end='')
     # remember the largest offset
     maxx = maxy = 0
     if len(x) > stride:
-        print " {0} rows at a time".format(stride//data.shape[0])
+        print(" {0} rows at a time".format(stride//data.shape[0]))
         n = 0
         borders = range(0, len(x)+1, stride)
         if borders[-1] != len(x):
@@ -227,9 +227,9 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
             n += 1
             sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
             sys.stdout.flush()
-        print ""
+        print("")
     else:
-        print 'all at once'
+        print('all at once')
         x += dxmodel(x, y)
         y += dymodel(xy[1, :], y)
 
@@ -259,13 +259,13 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         nandices = np.isnan(data)
         data[nandices] = 0.0
         squeezedshape = data.shape
-        print 'interpolating', fname
+        print('interpolating {0}'.format(fname))
 # Note that we need a fresh copy of the data because otherwise we will be trying to
 # interpolate over the results of our interpolation
         newdata = np.copy(data)
-        print "Remapping data",
+        print("Remapping data", end='')
         if len(x) > stride:
-            print "{0} rows at a time".format(stride//data.shape[0])
+            print("{0} rows at a time".format(stride//data.shape[0]))
             n = 0
             borders = range(0, len(x)+1, stride)
             if borders[-1] != len(x):
@@ -284,17 +284,17 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
                 n += 1
                 sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
                 sys.stdout.flush()
-            print ""
+            print("")
         else:
-            print 'all at once'
+            print('all at once')
             model = CloughTocher2DInterpolator(np.transpose([x, y]), np.ravel(data))
             data = model(xy[1, :], xy[0, :])
-            print data.shape
+            # print(data.shape)
         # Float32 instead of Float64 since the precision is meaningless
-        print "int64 -> int32"
+        print("int64 -> int32")
         data = np.float32(newdata.reshape(squeezedshape))
         # NaN the edges by 10 pixels to avoid weird edge effects
-        print "blanking edges"
+        print("blanking edges")
         data[0:10, :] = np.nan
         data[:, 0:10] = np.nan
         data[:, -10:data.shape[0]] = np.nan
@@ -302,9 +302,9 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         # Re-apply any previous NaN mask to the data
         data[nandices] = np.nan
         im[0].data = data.reshape(oldshape)
-        print "saving..."
+        print("saving...")
         im.writeto(fout, overwrite=True, output_verify='fix+warn')
-        print "wrote", fout
+        print("wrote {0}".format(fout))
         # Explicitly delete potential memory hogs
         del im, data
     return
@@ -454,4 +454,4 @@ if __name__ == "__main__":
         if results.suffix is not None:
             correct_images(fnames, dx, dy, results.suffix)
         else:
-            print "No output fits file specified; not doing warping"
+            print("No output fits file specified; not doing warping")
