@@ -39,7 +39,7 @@ def which(program):
     return None
 
 
-def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', fitsname=None, plots=False, smooth=300.):
+def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', fitsname=None, plots=False, smooth=300., sigcol=None, noisecol=None, SNR=10):
     """
     Read a fits file which contains the crossmatching results for two catalogues.
     Catalogue 1 is the source catalogue (positions that need to be corrected)
@@ -66,8 +66,11 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
     imwcs = wcs.WCS(hdr, naxis=2)
 
     # filter the data to only include SNR>10 sources
-    flux_mask = np.where(raw_data['peak_flux']/raw_data['local_rms']>10)
-    data = raw_data[flux_mask]
+    if sigcol is not None and noisecol is not None:
+        flux_mask = np.where(raw_data[sigcol]/raw_data[noisecol]>SNR)
+        data = raw_data[flux_mask]
+    else:
+        data = raw_data
 
     cat_xy = imwcs.all_world2pix(zip(data[ra1], data[dec1]), 1)
     ref_xy = imwcs.all_world2pix(zip(data[ra2], data[dec2]), 1)
@@ -416,6 +419,12 @@ if __name__ == "__main__":
                         help="Plot the offsets and models (default = False)")
     group3.add_argument('--smooth', dest='smooth', default=300.0, type=float,
                         help="Smoothness parameter to give to the radial basis function (default = 300 pix)")
+    group3.add_argument('--signal', dest='sigcol', default=None, type=str,
+                        help="Column from which to get the signal for a signal-to-noise cut (e.g. peak_flux) (no default; if not supplied, cut will not be performed")
+    group3.add_argument('--noise', dest='noisecol', default=None, type=str,
+                        help="Column from which to get the noise for a signal-to-noise cut (e.g. local_rms) (no default; if not supplied, cut will not be performed")
+    group3.add_argument('--SNR', dest='SNR', default=10, type=float,
+                        help="Signal-to-noise ratio for a signal-to-noise cut (default = 10)")
     group4 = parser.add_argument_group("Crossmatching input/output files")
     group4.add_argument("--incat", dest='incat', type=str, default=None,
                         help='Input catalogue to be warped.')
@@ -450,7 +459,7 @@ if __name__ == "__main__":
         fnames = glob.glob(results.infits) 
         # Use the first image to define the model
         dx, dy = make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
-                                 fnames[0], results.plot, results.smooth)
+                                 fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR):
         if results.suffix is not None:
             correct_images(fnames, dx, dy, results.suffix)
         else:
