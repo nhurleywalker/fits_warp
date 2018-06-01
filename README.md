@@ -37,6 +37,14 @@ Other:
   --plot                Plot the offsets and models (default = False)
   --smooth SMOOTH       Smoothness parameter to give to the radial basis
                         function (default = 300 pix)
+  --signal SIGCOL       Column from which to get the signal for a signal-to-
+                        noise cut (e.g. peak_flux) (no default; if not
+                        supplied, cut will not be performed
+  --noise NOISECOL      Column from which to get the noise for a signal-to-
+                        noise cut (e.g. local_rms) (no default; if not
+                        supplied, cut will not be performed
+  --SNR SNR             Signal-to-noise ratio for a signal-to-noise cut
+                        (default = 10)
 
 Crossmatching input/output files:
   --incat INCAT         Input catalogue to be warped.
