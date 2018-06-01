@@ -459,7 +459,7 @@ if __name__ == "__main__":
         fnames = glob.glob(results.infits) 
         # Use the first image to define the model
         dx, dy = make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
-                                 fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR):
+                                 fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR)
         if results.suffix is not None:
             correct_images(fnames, dx, dy, results.suffix)
         else:
