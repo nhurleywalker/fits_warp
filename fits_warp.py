@@ -2,6 +2,7 @@
 from __future__ import print_function
 import numpy as np
 import os
+import textwrap
 from scipy import interpolate
 from scipy.interpolate import CloughTocher2DInterpolator
 import astropy
@@ -434,6 +435,9 @@ if __name__ == "__main__":
                         help='Output cross match catalogue')
     group4.add_argument("--corrected", dest='corrected', type=str, default=None,
                         help='Output corrected version of input catalogue')
+    group5 = parser.add_argument_group("Information")
+    group5.add_argument("--cite", dest="cite", default=False, action="store_true",
+                        help="Print citation in BibTeX format.")
 
     results = parser.parse_args()
 
@@ -441,6 +445,30 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit()
 
+    if results.cite is True:
+        print("""
+Thanks for using fits_warp! To cite this package, please use the following BibTeX:
+
+                @ARTICLE{2018A&C....25...94H,
+                   author = {{Hurley-Walker}, N. and {Hancock}, P.~J.},
+                    title = \"{De-distorting ionospheric effects in the image plane}\",
+                  journal = {Astronomy and Computing},
+                archivePrefix = \"arXiv\",
+                   eprint = {1808.08017},
+                 primaryClass = \"astro-ph.IM\",
+                 keywords = {Astrometry, Radio astronomy, Algorithms, Ionosphere},
+                     year = 2018,
+                    month = oct,
+                   volume = 25,
+                    pages = {94-102},
+                      doi = {10.1016/j.ascom.2018.08.006},
+                   adsurl = {http://adsabs.harvard.edu/abs/2018A%26C....25...94H},
+                  adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+                }
+
+Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25...94H
+""")
+        sys.exit()
     if results.incat is not None:
         if results.refcat is not None:
             corrected, xmcat = warped_xmatch(incat=results.incat,
