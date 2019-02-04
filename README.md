@@ -58,4 +58,4 @@ Crossmatching input/output files:
 Please use the GitHub issue tracker to submit bug reports, feature requests, or questions.
 
 ## Credit
-If you use fits_warp in your work please Cite Hurley-Walker and Hancock 2018 (in prep)
+If you use fits_warp in your work please Cite [Hurley-Walker and Hancock 2018](http://adsabs.harvard.edu/abs/2018A%26C....25...94H).
