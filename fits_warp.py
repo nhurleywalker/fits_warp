@@ -204,7 +204,6 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
     print("Detected memory ~{0}GB".format(mem/2**30))
     # 32-bit floats, bit to byte conversion, MB conversion
     print("Image is {0}MB".format(data.shape[0]*data.shape[1]*32/(8*2**20)))
-    pixmem = 40000
     print("Allowing {0}kB per pixel".format(pixmem/2**10))
     stride = mem / pixmem
     # Make sure it is row-divisible
