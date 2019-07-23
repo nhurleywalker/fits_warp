@@ -179,7 +179,7 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
     return dxmodel, dymodel
 
 
-def correct_images(fnames, dxmodel, dymodel, suffix):
+def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
     """
     Read a list of fits image, and apply pixel-by-pixel corrections based on the
     given x/y models. Interpolate back to a regular grid, and then write an
@@ -236,6 +236,18 @@ def correct_images(fnames, dxmodel, dymodel, suffix):
         print('all at once')
         x += dxmodel(x, y)
         y += dymodel(xy[1, :], y)
+
+    if testimage is True:
+# Save the divergence as a fits image
+        outputname = fnames[0].replace(".fits","")
+        div = np.gradient((x-np.array(xy[1,:])).reshape(data.shape))[0] + np.gradient((y-np.array(xy[0,:])).reshape(data.shape))[1]
+        im[0].data = div
+        im.writeto(outputname+"_div.fits",overwrite=True)
+        im[0].data = ((x-np.array(xy[1,:])).reshape(data.shape))
+        im.writeto(outputname+"_delx.fits",overwrite=True)
+        im[0].data = ((y-np.array(xy[0,:])).reshape(data.shape))
+        im.writeto(outputname+"_dely.fits",overwrite=True)
+
 
 # Note that a potential speed-up would be to nest the file loop inside the
 # model calculation loop, so you don't have to calculate the model so many times
@@ -418,6 +430,8 @@ if __name__ == "__main__":
     group3 = parser.add_argument_group("Other")
     group3.add_argument('--plot', dest='plot', default=False, action='store_true',
                         help="Plot the offsets and models (default = False)")
+    group3.add_argument('--testimage', dest='testimage', default=False, action='store_true',
+                        help="Generate pixel-by-pixel delta_x, delta_y, and divergence maps (default = False)")
     group3.add_argument('--smooth', dest='smooth', default=300.0, type=float,
                         help="Smoothness parameter to give to the radial basis function (default = 300 pix)")
     group3.add_argument('--signal', dest='sigcol', default=None, type=str,
@@ -489,6 +503,6 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
         dx, dy = make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
                                  fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR)
         if results.suffix is not None:
-            correct_images(fnames, dx, dy, results.suffix)
+            correct_images(fnames, dx, dy, results.suffix, results.testimage)
         else:
             print("No output fits file specified; not doing warping")
