@@ -186,7 +186,7 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
     given x/y models. Interpolate back to a regular grid, and then write an
     output file
     :param fname: input fits file
-    :param dxodel: x model
+    :param dxmodel: x model
     :param dymodel: x model
     :param fout: output fits file
     :return: None
