@@ -304,7 +304,7 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
         else:
             print('all at once')
             model = CloughTocher2DInterpolator(np.transpose([x, y]), np.ravel(data))
-            data = model(xy[1, :], xy[0, :])
+            newdata = model(xy[1, :], xy[0, :])
             # print(data.shape)
         # Float32 instead of Float64 since the precision is meaningless
         print("int64 -> int32")
