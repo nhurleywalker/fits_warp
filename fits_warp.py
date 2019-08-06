@@ -40,7 +40,7 @@ def which(program):
     return None
 
 
-def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', fitsname=None, plots=False, smooth=300., sigcol=None, noisecol=None, SNR=10):
+def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', fitsname=None, plots=False, smooth=300., sigcol=None, noisecol=None, SNR=10, latex=False):
     """
     Read a fits file which contains the crossmatching results for two catalogues.
     Catalogue 1 is the source catalogue (positions that need to be corrected)
@@ -95,15 +95,16 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
             print("seaborne not detected; using hsv color scheme")
             cmap = 'hsv'
 # Attractive serif fonts
-        if which("latex"):
-            try:
-                from matplotlib import rc
-                rc('text', usetex=True)
-                rc('font',**{'family':'serif','serif':['serif']})
-            except:
-                print("rc not detected; using sans serif fonts")
-        else:
-                print("latex not detected; using sans serif fonts")
+        if latex is True:
+            if which("latex"):
+                try:
+                    from matplotlib import rc
+                    rc('text', usetex=True)
+                    rc('font',**{'family':'serif','serif':['serif']})
+                except:
+                    print("rc not detected; using sans serif fonts")
+            else:
+                    print("latex not detected; using sans serif fonts")
         xmin, xmax = 0, hdr['NAXIS1']
         ymin, ymax = 0, hdr['NAXIS2']
 
@@ -430,6 +431,8 @@ if __name__ == "__main__":
     group3 = parser.add_argument_group("Other")
     group3.add_argument('--plot', dest='plot', default=False, action='store_true',
                         help="Plot the offsets and models (default = False)")
+    group3.add_argument('--latex', dest='latex', default=False, action='store_true',
+                        help="Use LaTeX to make nicer axis labels for plots (default = False)")
     group3.add_argument('--testimage', dest='testimage', default=False, action='store_true',
                         help="Generate pixel-by-pixel delta_x, delta_y, and divergence maps (default = False)")
     group3.add_argument('--smooth', dest='smooth', default=300.0, type=float,
@@ -501,7 +504,7 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
         fnames = glob.glob(results.infits) 
         # Use the first image to define the model
         dx, dy = make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
-                                 fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR)
+                                 fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR, results.latex)
         if results.suffix is not None:
             correct_images(fnames, dx, dy, results.suffix, results.testimage)
         else:
