@@ -17,9 +17,13 @@ import sys
 import glob
 import argparse
 import psutil
+# Parallelise the code
+import multiprocessing
+# multiple cores support
+import pprocess
 
 __author__ = ["Natasha Hurley-Walker","Paul Hancock"]
-__date__ = "2018-05-29"
+__date__ = "2019-08-08"
 
 
 def is_exe(fpath):
@@ -78,7 +82,9 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
 
     diff_xy = ref_xy - cat_xy
 
+    global dxmodel
     dxmodel = interpolate.Rbf(cat_xy[:, 0], cat_xy[:, 1], diff_xy[:, 0], function='linear', smooth=smooth)
+    global dymodel
     dymodel = interpolate.Rbf(cat_xy[:, 0], cat_xy[:, 1], diff_xy[:, 1], function='linear', smooth=smooth)
 
     if plots:
@@ -177,26 +183,100 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
 #        pyplot.show()
         pyplot.savefig(outname, dpi=200)
 
-    return dxmodel, dymodel
+def apply_interp(index, x1, y1, x2, y2, data):
+    model = CloughTocher2DInterpolator(np.transpose([x1, y1]), np.ravel(data),fill_value=-1)
+    # evaluate the model over this range
+    newdata = model(x2, y2)
+    return index, newdata
 
+def pool_fit_dxmodel(index, x, y):
+    off = dxmodel(x, y)
+    return index, off
 
-def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
+def pool_fit_dymodel(index, x, y):
+    off = dymodel(x, y)
+    return index, off
+
+def _fmm(args):
+    """
+    A shallow wrapper for apply_interp
+
+    Parameters
+    ----------
+    args : list
+        A list of arguments for apply_interp
+
+    Returns
+    -------
+    None
+    """
+    # an easier to debug traceback when multiprocessing
+    # thanks to https://stackoverflow.com/a/16618842/1710603
+    try:
+        return apply_interp(*args)
+    except:
+        import traceback
+        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
+
+def _fmx(args):
+    """
+    A shallow wrapper for pool_fit_dxmodel
+
+    Parameters
+    ----------
+    args : list
+        A list of arguments for pool_fit_dxmodel
+
+    Returns
+    -------
+    None
+    """
+    # an easier to debug traceback when multiprocessing
+    # thanks to https://stackoverflow.com/a/16618842/1710603
+    try:
+        return pool_fit_dxmodel(*args)
+    except:
+        import traceback
+        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
+
+def _fmy(args):
+    """
+    A shallow wrapper for pool_fit_dymodel
+
+    Parameters
+    ----------
+    args : list
+        A list of arguments for pool_fit_dymodel
+
+    Returns
+    -------
+    None
+    """
+    # an easier to debug traceback when multiprocessing
+    # thanks to https://stackoverflow.com/a/16618842/1710603
+    try:
+        return pool_fit_dymodel(*args)
+    except:
+        import traceback
+        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
+
+def correct_images(fnames, suffix, testimage=False, cores=1):
     """
     Read a list of fits image, and apply pixel-by-pixel corrections based on the
-    given x/y models. Interpolate back to a regular grid, and then write an
-    output file
+    given x/y models, which are global variables defined earlier.
+    Interpolate back to a regular grid, and then write output files.
     :param fname: input fits file
-    :param dxmodel: x model
-    :param dymodel: x model
     :param fout: output fits file
     :return: None
     """
     # Get co-ordinate system from first image
-    im = fits.open(fnames[0])
-    data = np.squeeze(im[0].data)
-    # create a map of (x,y) pixel pairs as a list of tuples
-    xy = np.indices(data.shape, dtype=np.float32)
-    xy.shape = (2, xy.shape[1]*xy.shape[2])
+    # Do not open images at this stage, to save memory
+    hdr = fits.getheader(fnames[0])
+    nx = hdr["NAXIS1"]
+    ny = hdr["NAXIS2"]
+
+    xy = np.indices((ny, nx), dtype=np.float32)
+    xy.shape = (2, nx*ny)
 
     x = np.array(xy[1, :])
     y = np.array(xy[0, :])
@@ -204,51 +284,108 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
     mem = int(psutil.virtual_memory().available * 0.75)
     print("Detected memory ~{0}GB".format(mem/2**30))
     # 32-bit floats, bit to byte conversion, MB conversion
-    print("Image is {0}MB".format(data.shape[0]*data.shape[1]*32/(8*2**20)))
-    pixmem = 40000
+    print("Image is {0}MB".format(nx*ny*32/(8*2**20)))
+    pixmem = 20000
     print("Allowing {0}kB per pixel".format(pixmem/2**10))
     stride = mem / pixmem
-    # Make sure it is row-divisible
-    stride = (stride//data.shape[0])*data.shape[0]
-
-    # calculate the corrections in blocks of 100k since the rbf fails on large blocks
-    print('Applying corrections to pixel co-ordinates', end='')
-    # remember the largest offset
-    maxx = maxy = 0
-    if len(x) > stride:
-        print(" {0} rows at a time".format(stride//data.shape[0]))
-        n = 0
-        borders = range(0, len(x)+1, stride)
-        if borders[-1] != len(x):
-            borders.append(len(x))
-        for s1 in [slice(a, b) for a, b in zip(borders[:-1], borders[1:])]:
-            off = dxmodel(x[s1], y[s1])
-            maxx = max(np.max(np.abs(off)), maxx)
-            x[s1] += off
-            # the x coords were just changed so we need to refer back to the original coords
-            off = dymodel(xy[1, :][s1], y[s1])
-            maxy = max(np.max(np.abs(off)), maxy)
-            y[s1] += off
-            n += 1
-            sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
-            sys.stdout.flush()
-        print("")
-    else:
-        print('all at once')
+    # Make sure stride is row-divisible
+    stride = (stride//ny)*ny
+# Generally if this is true, the images are so small that you don't want to waste
+# system time setting up a big complex operation
+    if len(x) < stride:
+        print('Calculating all pixel offsets at once.')
         x += dxmodel(x, y)
         y += dymodel(xy[1, :], y)
+    else:
+        if cores == 1:
+            print('Applying corrections to pixel co-ordinates {0} rows at a time, using a single core'.format(stride//ny))
+            n = 0
+            borders = range(0, len(x)+1, stride)
+            if borders[-1] != len(x):
+                borders.append(len(x))
+            for s1 in [slice(a, b) for a, b in zip(borders[:-1], borders[1:])]:
+                off = dxmodel(x[s1], y[s1])
+                x[s1] += off
+                # the x coords were just changed so we need to refer back to the original coords
+                off = dymodel(xy[1, :][s1], y[s1])
+                y[s1] += off
+                n += 1
+                sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
+                sys.stdout.flush()
+            print("")
+        else:
+            # Ensure each core gets enough memory
+            stride /= cores
+
+            # When using a pool, you need to send the arguments as a tuple through the
+            # wrapping function, so we set up the arguments here before running the pool
+            args = []
+            print("Applying corrections to pixel co-ordinates {0} rows at a time across {1} cores".format(stride//ny, cores))
+            borders = range(0, len(x)+1, stride)
+            if borders[-1] != len(x):
+                borders.append(len(x))
+            # We need to order our arguments by an index, since the results will be returned
+            # in whatever order the pooled tasks finish
+            n = 0
+            for s1 in [slice(a, b) for a, b in zip(borders[:-1], borders[1:])]:
+                args.append((n, xy[1, s1], y[s1]))
+                n+=1
+
+            # x-offsets first
+            # start a new process for each task
+            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
+            try:
+                # chunksize=1 ensures that we only send a single task to each process
+                results = pool.map_async(_fmx, args, chunksize=1).get(timeout=10000000)
+            except KeyboardInterrupt:
+                pool.close()
+                sys.exit(1)
+            pool.close()
+            pool.join()
+
+            indices, offsets = map(list, zip(*results))
+            # Order correctly
+            ind = np.argsort(indices)
+            offsets = np.array(offsets)
+            offsets = offsets[ind]
+            # Flatten list of lists
+            o = [item for sublist in offsets for item in sublist]
+            # Make into array and apply
+            x += np.array(o)
+
+            # Repeat for y-offsets
+            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
+            try:
+                # chunksize=1 ensures that we only send a single task to each process
+                results = pool.map_async(_fmy, args, chunksize=1).get(timeout=10000000)
+            except KeyboardInterrupt:
+                pool.close()
+                sys.exit(1)
+            pool.close()
+            pool.join()
+
+            indices, offsets = map(list, zip(*results))
+            # Order correctly
+            ind = np.argsort(indices)
+            offsets = np.array(offsets)
+            offsets = offsets[ind]
+            # Flatten list of lists
+            o = [item for sublist in offsets for item in sublist]
+            # Make into array and apply
+            y += np.array(o)
 
     if testimage is True:
 # Save the divergence as a fits image
+        im = fits.open(fnames[0])
         outputname = fnames[0].replace(".fits","")
-        div = np.gradient((x-np.array(xy[1,:])).reshape(data.shape))[0] + np.gradient((y-np.array(xy[0,:])).reshape(data.shape))[1]
+        div = np.gradient((x-np.array(xy[1,:])).reshape((nx,ny)))[0] + np.gradient((y-np.array(xy[0,:])).reshape((nx,ny)))[1]
         im[0].data = div
         im.writeto(outputname+"_div.fits",overwrite=True)
-        im[0].data = ((x-np.array(xy[1,:])).reshape(data.shape))
+        im[0].data = ((x-np.array(xy[1,:])).reshape((nx,ny)))
         im.writeto(outputname+"_delx.fits",overwrite=True)
-        im[0].data = ((y-np.array(xy[0,:])).reshape(data.shape))
+        im[0].data = ((y-np.array(xy[0,:])).reshape((nx,ny)))
         im.writeto(outputname+"_dely.fits",overwrite=True)
-
+        del im
 
 # Note that a potential speed-up would be to nest the file loop inside the
 # model calculation loop, so you don't have to calculate the model so many times
@@ -261,11 +398,14 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
 # if = 5, differences ~ 10^-6 Jy/beam ; if = 15, differences ~ 10^-9; if = 25, 0
     extra_lines = 25
 #    extra_lines = int(max(maxx, maxy)) + 1
-# Testing shows that this stage is much less memory intensive, and we can do more
-# rows per cycle. However there is very little speed-up from processing with fewer
+# Testing shows that this stage is less memory intensive, and we can do more
+# rows per cycle. For a single core there is little speed-up from processing with fewer
 # rows, so if needed this number can be decreased by factors of 1-10 with no ill
 # effect on processing time.
+# However, for multi-core processing we want this number as large as possible
+# without going OOM.
     stride *= 40
+
     for fname in fnames:
         fout = fname.replace(".fits","_"+suffix+".fits")
         im = fits.open(fname)
@@ -277,12 +417,52 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
         data[nandices] = 0.0
         squeezedshape = data.shape
         print('interpolating {0}'.format(fname))
-# Note that we need a fresh copy of the data because otherwise we will be trying to
-# interpolate over the results of our interpolation
-        newdata = np.copy(data)
-        print("Remapping data", end='')
-        if len(x) > stride:
-            print("{0} rows at a time".format(stride//data.shape[0]))
+# We have the "all at once" option inside the cores=1 option this time, because
+# even on a high-memory system, it is faster to parallelise the interpolation than
+# to rely on scipy to do it all at once
+        if cores == 1:
+            if len(x) > stride:
+                print("Interpolating {0} rows at a time using a single core".format(stride//data.shape[0]))
+                # We need a fresh copy of the data because otherwise we will be trying to
+                # interpolate over the results of our interpolation
+                newdata = np.copy(data)
+                print("Remapping data", end='')
+                n = 0
+                borders = range(0, len(x)+1, stride)
+                if borders[-1] != len(x):
+                    borders.append(len(x))
+                for a, b in zip(borders, borders[1:]):
+                    # indexes into the image based on the index into the raveled data
+                    idx = np.unravel_index(range(a, b), data.shape)
+                    # model using an extra few lines to avoid edge effects
+                    bp = min(b + data.shape[0]*extra_lines, len(x))
+                    # also go backwards by a few lines
+                    ap = max(0, a - data.shape[0]*extra_lines)
+                    idxp = np.unravel_index(range(ap, bp), data.shape)
+                    model = CloughTocher2DInterpolator(np.transpose([x[ap:bp], y[ap:bp]]), np.ravel(data[idxp]),fill_value=-1)
+                    # evaluate the model over this range
+                    newdata[idx] = model(xy[1, a:b], xy[0, a:b])
+                    n += 1
+                    sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
+                    sys.stdout.flush()
+                print("")
+                # Float32 instead of Float64 since the precision is meaningless
+                print("int64 -> int32")
+                data = np.float32(newdata)
+            else:
+                print('all at once')
+                model = CloughTocher2DInterpolator(np.transpose([x, y]), np.ravel(data))
+                newdata = model(xy[1, :], xy[0, :])
+                # Float32 instead of Float64 since the precision is meaningless
+                print("int64 -> int32")
+                data = np.float32(newdata)
+        else:
+        # Testing shows that larger strides go OOM for the parallel version
+            stride /= 4
+        # Make sure it is row-divisible
+            stride = (stride//ny)*ny
+            print("Interpolating {0} rows at a time across {1} cores".format(stride//ny, cores))
+            args = []
             n = 0
             borders = range(0, len(x)+1, stride)
             if borders[-1] != len(x):
@@ -295,21 +475,34 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
                 # also go backwards by a few lines
                 ap = max(0, a - data.shape[0]*extra_lines)
                 idxp = np.unravel_index(range(ap, bp), data.shape)
-                model = CloughTocher2DInterpolator(np.transpose([x[ap:bp], y[ap:bp]]), np.ravel(data[idxp]),fill_value=-1)
-                # evaluate the model over this range
-                newdata[idx] = model(xy[1, a:b], xy[0, a:b])
+#                # evaluate the model over this range
+#                calc(x1 = x[ap:bp], y1 = y[ap:bp], data = data[idxp], x2 = xy[1, a:b], y2 = xy[0, a:b])
+                args.append((n, x[ap:bp], y[ap:bp], xy[1, a:b], xy[0, a:b], data[idxp]))
                 n += 1
-                sys.stdout.write("{0:3.0f}%...".format(100*n/len(borders)))
-                sys.stdout.flush()
-            print("")
-        else:
-            print('all at once')
-            model = CloughTocher2DInterpolator(np.transpose([x, y]), np.ravel(data))
-            newdata = model(xy[1, :], xy[0, :])
-            # print(data.shape)
-        # Float32 instead of Float64 since the precision is meaningless
-        print("int64 -> int32")
-        data = np.float32(newdata.reshape(squeezedshape))
+
+#    # start a new process for each task
+            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
+            try:
+                # chunksize=1 ensures that we only send a single task to each process
+                results = pool.map_async(_fmm, args, chunksize=1).get(timeout=10000000)
+            except KeyboardInterrupt:
+                pool.close()
+                sys.exit(1)
+            pool.close()
+            pool.join()
+
+            indices, pixvals = map(list, zip(*results))
+            # Order correctly
+            ind = np.argsort(indices)
+            pixvals = np.array(pixvals)
+            pixvals = pixvals[ind]
+            # Flatten list of lists
+            n = [item for sublist in pixvals for item in sublist]
+            # Float32 instead of Float64 since the precision is meaningless
+            print("int64 -> int32")
+            newdata = np.array(n, dtype="float32")
+
+        data = newdata.reshape(squeezedshape)
         # NaN the edges by 10 pixels to avoid weird edge effects
         print("blanking edges")
         data[0:10, :] = np.nan
@@ -325,7 +518,6 @@ def correct_images(fnames, dxmodel, dymodel, suffix, testimage=False):
         # Explicitly delete potential memory hogs
         del im, data
     return
-
 
 def warped_xmatch(incat=None, refcat=None, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000',
                   radius=2/60.):
@@ -443,6 +635,8 @@ if __name__ == "__main__":
                         help="Column from which to get the noise for a signal-to-noise cut (e.g. local_rms) (no default; if not supplied, cut will not be performed")
     group3.add_argument('--SNR', dest='SNR', default=10, type=float,
                         help="Signal-to-noise ratio for a signal-to-noise cut (default = 10)")
+    group3.add_argument('--cores', dest='cores', default=None, type=int,
+                        help="NUmber of cores to use (default = autodetect")
     group4 = parser.add_argument_group("Crossmatching input/output files")
     group4.add_argument("--incat", dest='incat', type=str, default=None,
                         help='Input catalogue to be warped.')
@@ -486,6 +680,12 @@ Thanks for using fits_warp! To cite this package, please use the following BibTe
 Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25...94H
 """)
         sys.exit()
+
+    if results.cores is None:
+        cores = multiprocessing.cpu_count()
+    else:
+        cores = results.cores
+
     if results.incat is not None:
         if results.refcat is not None:
             corrected, xmcat = warped_xmatch(incat=results.incat,
@@ -503,9 +703,9 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
     if results.infits is not None:
         fnames = glob.glob(results.infits) 
         # Use the first image to define the model
-        dx, dy = make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
+        make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
                                  fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR, results.latex)
         if results.suffix is not None:
-            correct_images(fnames, dx, dy, results.suffix, results.testimage)
+            correct_images(fnames, results.suffix, results.testimage, cores)
         else:
             print("No output fits file specified; not doing warping")
