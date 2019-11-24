@@ -77,8 +77,8 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
     else:
         data = raw_data
 
-    cat_xy = imwcs.all_world2pix(zip(data[ra1], data[dec1]), 1)
-    ref_xy = imwcs.all_world2pix(zip(data[ra2], data[dec2]), 1)
+    cat_xy = imwcs.all_world2pix(list(zip(data[ra1], data[dec1])), 1)
+    ref_xy = imwcs.all_world2pix(list(zip(data[ra2], data[dec2])), 1)
 
     diff_xy = ref_xy - cat_xy
 
