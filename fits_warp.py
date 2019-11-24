@@ -24,7 +24,7 @@ from AegeanTools import pprocess
 
 __author__ = ["Natasha Hurley-Walker","Paul Hancock"]
 __date__ = "2019-08-08"
-
+__version__ = '1.3.0'
 
 def is_exe(fpath):
     return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
@@ -300,7 +300,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
         if cores == 1:
             print('Applying corrections to pixel co-ordinates {0} rows at a time, using a single core'.format(stride//ny))
             n = 0
-            borders = range(0, len(x)+1, stride)
+            borders = list(range(0, len(x)+1, stride))
             if borders[-1] != len(x):
                 borders.append(len(x))
             for s1 in [slice(a, b) for a, b in zip(borders[:-1], borders[1:])]:
@@ -315,13 +315,13 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             print("")
         else:
             # Ensure each core gets enough memory
-            stride /= cores
+            stride = int(stride//cores)
 
             # When using a pool, you need to send the arguments as a tuple through the
             # wrapping function, so we set up the arguments here before running the pool
             args = []
             print("Applying corrections to pixel co-ordinates {0} rows at a time across {1} cores".format(stride//ny, cores))
-            borders = range(0, len(x)+1, stride)
+            borders = list(range(0, len(x)+1, stride))
             if borders[-1] != len(x):
                 borders.append(len(x))
             # We need to order our arguments by an index, since the results will be returned
@@ -428,7 +428,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
                 newdata = np.copy(data)
                 print("Remapping data", end='')
                 n = 0
-                borders = range(0, len(x)+1, stride)
+                borders = list(range(0, len(x)+1, stride))
                 if borders[-1] != len(x):
                     borders.append(len(x))
                 for a, b in zip(borders, borders[1:]):
@@ -458,13 +458,13 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
                 data = np.float32(newdata)
         else:
         # Testing shows that larger strides go OOM for the parallel version
-            stride /= 4
+            stride = int( stride// 4)
         # Make sure it is row-divisible
             stride = (stride//ny)*ny
             print("Interpolating {0} rows at a time across {1} cores".format(stride//ny, cores))
             args = []
             n = 0
-            borders = range(0, len(x)+1, stride)
+            borders = list(range(0, len(x)+1, stride))
             if borders[-1] != len(x):
                 borders.append(len(x))
             for a, b in zip(borders, borders[1:]):
