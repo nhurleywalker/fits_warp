@@ -458,25 +458,21 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
                 data = np.float32(newdata)
         else:
         # Testing shows that larger strides go OOM for the parallel version
-            stride = int( stride// 4)
+            mc_stride = int(stride // 4)
         # Make sure it is row-divisible
-            stride = (stride//ny)*ny
-            print("Interpolating {0} rows at a time across {1} cores".format(stride//ny, cores))
+            mc_stride = (mc_stride//ny)*ny
+            print("Interpolating {0} rows at a time across {1} cores".format(mc_stride//ny, cores))
             args = []
             n = 0
-            borders = list(range(0, len(x)+1, stride))
+            borders = list(range(0, len(x)+1, mc_stride))
             if borders[-1] != len(x):
                 borders.append(len(x))
             for a, b in zip(borders, borders[1:]):
-                # indexes into the image based on the index into the raveled data
-                idx = np.unravel_index(range(a, b), data.shape)
                 # model using an extra few lines to avoid edge effects
                 bp = min(b + data.shape[0]*extra_lines, len(x))
                 # also go backwards by a few lines
                 ap = max(0, a - data.shape[0]*extra_lines)
                 idxp = np.unravel_index(range(ap, bp), data.shape)
-#                # evaluate the model over this range
-#                calc(x1 = x[ap:bp], y1 = y[ap:bp], data = data[idxp], x2 = xy[1, a:b], y2 = xy[0, a:b])
                 args.append((n, x[ap:bp], y[ap:bp], xy[1, a:b], xy[0, a:b], data[idxp]))
                 n += 1
 
