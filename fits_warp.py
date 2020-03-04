@@ -411,11 +411,13 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
         im = fits.open(fname)
         im.writeto(fout, overwrite=True, output_verify='fix+warn')
         oldshape = im[0].data.shape
-        data = np.squeeze(im[0].data)
+        data = im[0].data
+        unsqueezedshape = data.shape
+        data = np.squeeze(data)
+        squeezedshape = data.shape
 # Replace NaNs with zeroes because otherwise it breaks the interpolation
         nandices = np.isnan(data)
         data[nandices] = 0.0
-        squeezedshape = data.shape
         print('interpolating {0}'.format(fname))
 # We have the "all at once" option inside the cores=1 option this time, because
 # even on a high-memory system, it is faster to parallelise the interpolation than
@@ -701,11 +703,14 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
                 print("Wrote {0}".format(results.corrected))
 
     if results.infits is not None:
-        fnames = glob.glob(results.infits) 
-        # Use the first image to define the model
-        make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
-                                 fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR, results.latex)
-        if results.suffix is not None:
-            correct_images(fnames, results.suffix, results.testimage, cores)
+        if results.xm is not None:
+            fnames = glob.glob(results.infits) 
+            # Use the first image to define the model
+            make_pix_models(results.xm, results.ra1, results.dec1, results.ra2, results.dec2,
+                                     fnames[0], results.plot, results.smooth, results.sigcol, results.noisecol, results.SNR, results.latex)
+            if results.suffix is not None:
+                correct_images(fnames, results.suffix, results.testimage, cores)
+            else:
+                print("No output fits file specified via --suffix; not doing warping")
         else:
-            print("No output fits file specified; not doing warping")
+            print("Must specify a cross-matched catalogue via --xm to perform the warping.")
