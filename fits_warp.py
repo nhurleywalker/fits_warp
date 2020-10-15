@@ -19,8 +19,6 @@ import argparse
 import psutil
 # Parallelise the code
 import multiprocessing
-# multiple cores support
-import pprocess
 
 __author__ = ["Natasha Hurley-Walker","Paul Hancock"]
 __date__ = "2019-08-08"
