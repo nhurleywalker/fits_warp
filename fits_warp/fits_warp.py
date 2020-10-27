@@ -75,8 +75,8 @@ def make_pix_models(fname, ra1='ra', dec1='dec', ra2='RAJ2000', dec2='DEJ2000', 
     else:
         data = raw_data
 
-    cat_xy = imwcs.all_world2pix(zip(data[ra1], data[dec1]), 1)
-    ref_xy = imwcs.all_world2pix(zip(data[ra2], data[dec2]), 1)
+    cat_xy = imwcs.all_world2pix(list(zip(data[ra1], data[dec1])), 1)
+    ref_xy = imwcs.all_world2pix(list(zip(data[ra2], data[dec2])), 1)
 
     diff_xy = ref_xy - cat_xy
 
@@ -298,7 +298,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
         if cores == 1:
             print('Applying corrections to pixel co-ordinates {0} rows at a time, using a single core'.format(stride//ny))
             n = 0
-            borders = range(0, len(x)+1, stride)
+            borders = list(range(0, len(x)+1, int(stride)))
             if borders[-1] != len(x):
                 borders.append(len(x))
             for s1 in [slice(a, b) for a, b in zip(borders[:-1], borders[1:])]:
@@ -319,7 +319,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             # wrapping function, so we set up the arguments here before running the pool
             args = []
             print("Applying corrections to pixel co-ordinates {0} rows at a time across {1} cores".format(stride//ny, cores))
-            borders = range(0, len(x)+1, stride)
+            borders = list(range(0, len(x)+1, int(stride)))
             if borders[-1] != len(x):
                 borders.append(len(x))
             # We need to order our arguments by an index, since the results will be returned
@@ -344,7 +344,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             indices, offsets = map(list, zip(*results))
             # Order correctly
             ind = np.argsort(indices)
-            offsets = np.array(offsets)
+            offsets = np.array(offsets, dtype='object')
             offsets = offsets[ind]
             # Flatten list of lists
             o = [item for sublist in offsets for item in sublist]
@@ -365,7 +365,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             indices, offsets = map(list, zip(*results))
             # Order correctly
             ind = np.argsort(indices)
-            offsets = np.array(offsets)
+            offsets = np.array(offsets, dtype='object')
             offsets = offsets[ind]
             # Flatten list of lists
             o = [item for sublist in offsets for item in sublist]
@@ -464,7 +464,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             print("Interpolating {0} rows at a time across {1} cores".format(stride//ny, cores))
             args = []
             n = 0
-            borders = range(0, len(x)+1, stride)
+            borders = list(range(0, len(x)+1, int(stride)))
             if borders[-1] != len(x):
                 borders.append(len(x))
             for a, b in zip(borders, borders[1:]):
@@ -494,7 +494,7 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             indices, pixvals = map(list, zip(*results))
             # Order correctly
             ind = np.argsort(indices)
-            pixvals = np.array(pixvals)
+            pixvals = np.array(pixvals, dtype='object')
             pixvals = pixvals[ind]
             # Flatten list of lists
             n = [item for sublist in pixvals for item in sublist]
