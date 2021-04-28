@@ -333,7 +333,7 @@ def multiprocess_progress(cores, func, args, progress, tqdm_desc=None):
                         desc=tqdm_desc,
                     )
                 ]
-                sleep(4)
+                sleep(4)  # might help with a join timeout error?
             else:
                 print("Running {0} stage".format(tqdm_desc))
                 results = pool.map_async(func, args, chunksize=1).get(timeout=10000000)
@@ -598,16 +598,6 @@ def correct_images(fnames, suffix, testimage=False, cores=1, vm=None, progress=F
             results = multiprocess_progress(
                 cores, _fmm, args, progress, tqdm_desc="Sky interpolation"
             )
-
-            # pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
-            # try:
-            #     # chunksize=1 ensures that we only send a single task to each process
-            #     results = pool.map_async(_fmm, args, chunksize=1).get(timeout=10000000)
-            # except KeyboardInterrupt:
-            #     pool.close()
-            #     sys.exit(1)
-            # pool.close()
-            # pool.join()
 
             indices, pixvals = map(list, zip(*results))
             # Order correctly
@@ -1000,6 +990,7 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
                     results.suffix,
                     results.testimage,
                     cores,
+                    vm=results.vm,
                     progress=results.progress,
                 )
             else:
