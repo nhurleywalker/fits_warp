@@ -338,10 +338,6 @@ def multiprocess_progress(cores, func, args, progress, tqdm_desc=None):
                 print("Running {0} stage".format(tqdm_desc))
                 results = pool.map_async(func, args, chunksize=1).get(timeout=10000000)
 
-                # # Close it all down
-                # pool.close()
-                # pool.join()
-
         except KeyboardInterrupt:
             pool.close()
             sys.exit(1)
