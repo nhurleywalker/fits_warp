@@ -17,6 +17,8 @@ import sys
 import glob
 import argparse
 import psutil
+from tqdm import tqdm
+from time import time, sleep
 
 # Parallelise the code
 import multiprocessing
@@ -56,6 +58,7 @@ def make_pix_models(
     noisecol=None,
     SNR=10,
     latex=False,
+    max_sources=None,
 ):
     """
     Read a fits file which contains the crossmatching results for two catalogues.
@@ -70,6 +73,7 @@ def make_pix_models(
     :param fitsname: fitsimage upon which the pixel models will be based
     :param plots: True = Make plots
     :param smooth: smoothing radius (in pixels) for the RBF function
+    :param max_sources: Maximum number of sources to include in the construction of the warping model (defaults to None, use all sources)
     :return: (dxmodel, dymodel)
     """
     filename, file_extension = os.path.splitext(fname)
@@ -89,6 +93,16 @@ def make_pix_models(
     else:
         data = raw_data
 
+    if max_sources is not None:
+        # argsort goes in ascending order, so select from the end
+        sort_idx = np.argsort(data[sigcol])[0][-max_sources:]
+        data = data[sort_idx]
+        print("Selected {0} brightest sources".format(max_sources))
+
+    print("Using {0} sources to construct the pixel offset model".format(len(data)))
+
+    start = time()
+
     cat_xy = imwcs.all_world2pix(list(zip(data[ra1], data[dec1])), 1)
     ref_xy = imwcs.all_world2pix(list(zip(data[ra2], data[dec2])), 1)
 
@@ -102,6 +116,8 @@ def make_pix_models(
     dymodel = interpolate.Rbf(
         cat_xy[:, 0], cat_xy[:, 1], diff_xy[:, 1], function="linear", smooth=smooth
     )
+
+    print("Model created in {0} seconds".format(time() - start))
 
     if plots:
         import matplotlib
@@ -300,13 +316,44 @@ def _fmy(args):
         raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 
-def correct_images(fnames, suffix, testimage=False, cores=1):
+def multiprocess_progress(cores, func, args, progress, tqdm_desc=None):
+    """
+    Provide a single function to decide how to do the pool work submission,
+    and wrap with a progress bar if requested
+    """
+    # start a new process for each task
+    with multiprocessing.Pool(processes=cores, maxtasksperchild=1) as pool:
+        try:
+            if progress:
+                results = [
+                    i
+                    for i in tqdm(
+                        pool.imap(func, args, chunksize=1),
+                        total=len(args),
+                        desc=tqdm_desc,
+                    )
+                ]
+                sleep(4)  # might help with a join timeout error?
+            else:
+                print("Running {0} stage".format(tqdm_desc))
+                results = pool.map_async(func, args, chunksize=1).get(timeout=10000000)
+
+        except KeyboardInterrupt:
+            pool.close()
+            sys.exit(1)
+
+    return results
+
+
+def correct_images(fnames, suffix, testimage=False, cores=1, vm=None, progress=False):
     """
     Read a list of fits image, and apply pixel-by-pixel corrections based on the
     given x/y models, which are global variables defined earlier.
     Interpolate back to a regular grid, and then write output files.
     :param fname: input fits file
     :param fout: output fits file
+    :param vm: Assume this many GBs are available, which is used when computing stride lengths
+    :param progress: use tqdm to provide a progress bar
     :return: None
     """
     # Get co-ordinate system from first image
@@ -321,7 +368,10 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
     x = np.array(xy[1, :])
     y = np.array(xy[0, :])
 
-    mem = int(psutil.virtual_memory().available * 0.75)
+    if vm is None:
+        mem = int(psutil.virtual_memory().available * 0.75)
+    else:
+        mem = int(vm * 1e9)  # GB to B
     print("Detected memory ~{0}GB".format(mem / 2 ** 30))
     # 32-bit floats, bit to byte conversion, MB conversion
     print("Image is {0}MB".format(nx * ny * 32 / (8 * 2 ** 20)))
@@ -380,17 +430,11 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
                 n += 1
 
             # x-offsets first
-            # start a new process for each task
-            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
-            try:
-                # chunksize=1 ensures that we only send a single task to each process
-                results = pool.map_async(_fmx, args, chunksize=1).get(timeout=10000000)
-            except KeyboardInterrupt:
-                pool.close()
-                sys.exit(1)
-            pool.close()
-            pool.join()
+            results = multiprocess_progress(
+                cores, _fmx, args, progress, tqdm_desc="x-offsets"
+            )
 
+            print("Reordering x-offset results")
             indices, offsets = map(list, zip(*results))
             # Order correctly
             ind = np.argsort(indices)
@@ -398,20 +442,17 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             offsets = offsets[ind]
             # Flatten list of lists
             o = [item for sublist in offsets for item in sublist]
+
+            # o = np.concatenate([sublist for sublist in offsets])
             # Make into array and apply
             x += np.array(o)
 
-            # Repeat for y-offsets
-            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
-            try:
-                # chunksize=1 ensures that we only send a single task to each process
-                results = pool.map_async(_fmy, args, chunksize=1).get(timeout=10000000)
-            except KeyboardInterrupt:
-                pool.close()
-                sys.exit(1)
-            pool.close()
-            pool.join()
+            # y-offsets are performed now
+            results = multiprocess_progress(
+                cores, _fmy, args, progress, tqdm_desc="y-offsets"
+            )
 
+            print("Reordering y-offset results")
             indices, offsets = map(list, zip(*results))
             # Order correctly
             ind = np.argsort(indices)
@@ -423,6 +464,8 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
             y += np.array(o)
 
     if testimage is True:
+        print("Creating divergence maps")
+        start = time()
         # Save the divergence as a fits image
         im = fits.open(fnames[0])
         outputname = fnames[0].replace(".fits", "")
@@ -436,6 +479,8 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
         im.writeto(outputname + "_delx.fits", overwrite=True)
         im[0].data = (y - np.array(xy[0, :])).reshape((nx, ny))
         im.writeto(outputname + "_dely.fits", overwrite=True)
+        print("finished divergence map in {0} seconds".format(time() - start))
+
         del im
 
     # Note that a potential speed-up would be to nest the file loop inside the
@@ -546,15 +591,9 @@ def correct_images(fnames, suffix, testimage=False, cores=1):
                 n += 1
 
             #    # start a new process for each task
-            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
-            try:
-                # chunksize=1 ensures that we only send a single task to each process
-                results = pool.map_async(_fmm, args, chunksize=1).get(timeout=10000000)
-            except KeyboardInterrupt:
-                pool.close()
-                sys.exit(1)
-            pool.close()
-            pool.join()
+            results = multiprocess_progress(
+                cores, _fmm, args, progress, tqdm_desc="Sky interpolation"
+            )
 
             indices, pixvals = map(list, zip(*results))
             # Order correctly
@@ -704,6 +743,7 @@ def warped_xmatch(
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
     group1 = parser.add_argument_group("Warping input/output files")
     group1.add_argument(
@@ -812,6 +852,24 @@ if __name__ == "__main__":
         default=None,
         type=int,
         help="NUmber of cores to use (default = autodetect",
+    )
+    group3.add_argument(
+        "--vm",
+        default=None,
+        type=float,
+        help="Attempt to restrict interpolation algorithms to this man GBs. Data is split based on a stride length computed internally. ",
+    )
+    group3.add_argument(
+        "--nsrcs",
+        default=None,
+        type=int,
+        help="Maximum number of sources used when constructing the distortion model. Default behaviour will use all available matches. ",
+    )
+    group3.add_argument(
+        "--progress",
+        default=False,
+        action="store_true",
+        help="Provide a progress bar for stages that are distributed into work-units",
     )
     group4 = parser.add_argument_group("Crossmatching input/output files")
     group4.add_argument(
@@ -922,9 +980,17 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
                 results.noisecol,
                 results.SNR,
                 results.latex,
+                max_sources=results.nsrcs,
             )
             if results.suffix is not None:
-                correct_images(fnames, results.suffix, results.testimage, cores)
+                correct_images(
+                    fnames,
+                    results.suffix,
+                    results.testimage,
+                    cores,
+                    vm=results.vm,
+                    progress=results.progress,
+                )
             else:
                 print("No output fits file specified via --suffix; not doing warping")
         else:
