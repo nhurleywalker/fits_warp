@@ -826,6 +826,13 @@ if __name__ == "__main__":
         help="Smoothness parameter to give to the radial basis function (default = 300 pix)",
     )
     group3.add_argument(
+        "--radius",
+        dest="radius",
+        default=2.,
+        type=float,
+        help="Allowable cross-matching radius with reference catalogue, in arcmin (default = 2 arcmin)",
+    )
+    group3.add_argument(
         "--signal",
         dest="sigcol",
         default=None,
@@ -956,6 +963,7 @@ Other formats can be found here: http://adsabs.harvard.edu/abs/2018A%26C....25..
                 dec1=results.dec1,
                 ra2=results.ra2,
                 dec2=results.dec2,
+                radius=results.radius/60.,
             )
             xmcat.write(results.xm, overwrite=True)
             print("Wrote {0}".format(results.xm))
